@@ -24,10 +24,11 @@ func main() {
 	server := "irc.freenode.net:6667"
 	brainFile := "Brain"
 	learnEverything := 1
+	messageOnJoin := 0
 
 	var brain *microhal.Microhal
 	if _, err := os.Stat(brainFile); os.IsNotExist(err) {
-		brain = microhal.NewMicrohal(brainFile, 2)
+		brain = microhal.NewMicrohal(brainFile, 10)
 	} else {
 		brain = microhal.LoadMicrohal(brainFile)
 	}
@@ -146,8 +147,6 @@ func main() {
 				for scanner.Scan() {
 					irc.Channels[m.To].Say(scanner.Text())
 					time.Sleep(2000 * time.Millisecond)
-
-					// fmt.Printf("docker build out | %s\n", scanner.Text())
 				}
 			}()
 
@@ -179,8 +178,9 @@ func main() {
 
 	// Join a channel
 	mychannel := irc.Join(*ichan)
-	mychannel.Say("i'm here to serve")
-
+	if messageOnJoin == 1 {
+		mychannel.Say("i'm here to serve")
+	}
 	// Read off messages from the server
 	for mes := range irc.Incoming {
 		if mes == nil {
