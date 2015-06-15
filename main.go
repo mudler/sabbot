@@ -1,22 +1,40 @@
 package main
 
 import (
-	"github.com/mudler/sabbot/packages"
+	"bufio"
 	"flag"
 	"fmt"
+	"github.com/freahs/microhal"
+	"github.com/mudler/sabbot/packages"
 	"github.com/whyrusleeping/hellabot"
+	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 func main() {
-	channel := "#spike-pentesting-dev"
-	bot_nick := "Sabbot"
-	server := "irc.freenode.net:6667"
 
-	nick := flag.String("nick", bot_nick, "nickname for the bot")
+	botNick := "Sabbot"
+	re, err := regexp.Compile(botNick + `\S`)
+	channel := "#sabayon-dev"
+
+	server := "irc.freenode.net:6667"
+	brainFile := "Brain"
+	learnEverything := 1
+
+	var brain *microhal.Microhal
+	if _, err := os.Stat(brainFile); os.IsNotExist(err) {
+		brain = microhal.NewMicrohal(brainFile, 2)
+	} else {
+		brain = microhal.LoadMicrohal(brainFile)
+	}
+
+	brainIn, brainOut := brain.Start(5000*time.Millisecond, 250)
+
+	nick := flag.String("nick", botNick, "nickname for the bot")
 	serv := flag.String("server", server, "hostname and port for irc server to connect to")
 	ichan := flag.String("chan", channel, "channel for bot to join")
 
@@ -26,7 +44,33 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	var HALLearn = &hbot.Trigger{
+		func(mes *hbot.Message) bool {
+			return mes.Command == "PRIVMSG" && mes.To == channel
+		},
+		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
+			//inputString := strings.Replace(mes.Content, botNick, "", 1)
+			sanitizedInput := re.ReplaceAllLiteralString(mes.Content, "")
+			brainIn <- sanitizedInput
+			res := <-brainOut
+			fmt.Printf("stupid response: %s\n", res)
 
+			return false
+		},
+	}
+	var HALAnswer = &hbot.Trigger{
+		func(mes *hbot.Message) bool {
+			return strings.Contains(mes.Content, botNick) && mes.Command == "PRIVMSG" && mes.To == channel
+		},
+		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
+			//inputString := strings.Replace(mes.Content, botNick, "", 1)
+			sanitizedInput := re.ReplaceAllLiteralString(mes.Content, "")
+			brainIn <- sanitizedInput
+			outputString := <-brainOut
+			irc.Channels[mes.To].Say(mes.Name + ":" + outputString)
+			return false
+		},
+	}
 	var Search = func(irc *hbot.IrcCon, mes *hbot.Message, s string) {
 		max := 3
 		var search []packages.Package
@@ -89,12 +133,35 @@ func main() {
 		func(irc *hbot.IrcCon, m *hbot.Message) bool {
 
 			eitArgs := strings.Replace(m.Content, "-eit", "", 1)
-			out, err := exec.Command("/usr/bin/eit", eitArgs).Output()
+
+			cmd := exec.Command("/usr/bin/eit", eitArgs)
+			cmdReader, err := cmd.StdoutPipe()
 			if err != nil {
-				fmt.Printf("error: %s\n", err)
+				fmt.Fprintln(os.Stderr, "Error creating StdoutPipe for Cmd", err)
+				os.Exit(1)
 			}
-			output := string(out[:])
-			irc.Channels[m.To].Say(output)
+
+			scanner := bufio.NewScanner(cmdReader)
+			go func() {
+				for scanner.Scan() {
+					irc.Channels[m.To].Say(scanner.Text())
+					time.Sleep(2000 * time.Millisecond)
+
+					// fmt.Printf("docker build out | %s\n", scanner.Text())
+				}
+			}()
+
+			err = cmd.Start()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error starting Cmd", err)
+				//os.Exit(1)
+			}
+
+			err = cmd.Wait()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error waiting for Cmd", err)
+				//os.Exit(1)
+			}
 
 			return true
 		},
@@ -103,7 +170,10 @@ func main() {
 	irc.AddTrigger(SearchPackage)
 	irc.AddTrigger(SearchRevDeps)
 	irc.AddTrigger(Eit)
-
+	irc.AddTrigger(HALAnswer)
+	if learnEverything == 1 {
+		irc.AddTrigger(HALLearn)
+	}
 	// Start up bot
 	irc.Start()
 
