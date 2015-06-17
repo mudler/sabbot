@@ -2,11 +2,10 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"github.com/freahs/microhal"
+	"github.com/mudler/hellabot"
 	"github.com/mudler/sabbot/packages"
-	"github.com/whyrusleeping/hellabot"
 	"os"
 	"os/exec"
 	"regexp"
@@ -16,105 +15,132 @@ import (
 )
 
 func main() {
-
-	botNick := "Sabbot"
-	re, err := regexp.Compile(botNick + `\S`)
-	channel := "#sabayon-dev"
-
-	server := "irc.freenode.net:6667"
+	configFile := "./config.json"
+	HAL := false
 	brainFile := "Brain"
-	learnEverything := 1
-	messageOnJoin := 0
-
+	learnEverything := true
 	var brain *microhal.Microhal
+
 	if _, err := os.Stat(brainFile); os.IsNotExist(err) {
-		brain = microhal.NewMicrohal(brainFile, 10)
+		brain = microhal.NewMicrohal(brainFile, 6)
 	} else {
 		brain = microhal.LoadMicrohal(brainFile)
 	}
 
-	brainIn, brainOut := brain.Start(5000*time.Millisecond, 250)
-
-	nick := flag.String("nick", botNick, "nickname for the bot")
-	serv := flag.String("server", server, "hostname and port for irc server to connect to")
-	ichan := flag.String("chan", channel, "channel for bot to join")
-
-	flag.Parse()
-
-	irc, err := hbot.NewIrcConnection(*serv, *nick, false, false)
+	irc, config, err := hbot.NewIrcConnectionFromJSON(configFile)
+	fmt.Println("Loading from " + configFile)
 	if err != nil {
 		panic(err)
 	}
-	var HALLearn = &hbot.Trigger{
-		func(mes *hbot.Message) bool {
-			return mes.Command == "PRIVMSG" && mes.To == channel
-		},
-		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
-			//inputString := strings.Replace(mes.Content, botNick, "", 1)
-			sanitizedInput := re.ReplaceAllLiteralString(mes.Content, "")
-			brainIn <- sanitizedInput
-			res := <-brainOut
-			fmt.Printf("stupid response: %s\n", res)
+	re, reerr := regexp.Compile(config.Nick + `\S`)
+	if reerr != nil {
+		panic(err)
+	}
 
-			return false
-		},
+	//microhal too unstable
+	if HAL {
+		brainIn, brainOut := brain.Start(10000*time.Millisecond, 250)
+
+		var HALLearn = &hbot.Trigger{
+			func(m *hbot.Message) bool {
+				if m.Command == "PRIVMSG" {
+					return true
+				}
+				return false
+			},
+			func(irc *hbot.IrcCon, m *hbot.Message) bool {
+				//inputString := strings.Replace(mes.Content, botNick, "", 1)
+				sanitizedInput := re.ReplaceAllLiteralString(m.Content, "")
+				brainIn <- sanitizedInput
+				res := <-brainOut
+				fmt.Printf("stupid response: %s\n", res)
+
+				return false
+			},
+		}
+		var HALAnswer = &hbot.Trigger{
+			func(m *hbot.Message) bool {
+				return strings.Contains(m.Content, config.Nick) && m.Command == "PRIVMSG"
+			},
+			func(irc *hbot.IrcCon, m *hbot.Message) bool {
+				//inputString := strings.Replace(mes.Content, botNick, "", 1)
+				sanitizedInput := re.ReplaceAllLiteralString(m.Content, "")
+				brainIn <- sanitizedInput
+				outputString := <-brainOut
+				irc.Channels[m.To].Say(m.Name + ":" + outputString)
+				return false
+			},
+		}
+		irc.AddTrigger(HALAnswer)
+		if learnEverything {
+			irc.AddTrigger(HALLearn)
+		}
 	}
-	var HALAnswer = &hbot.Trigger{
-		func(mes *hbot.Message) bool {
-			return strings.Contains(mes.Content, botNick) && mes.Command == "PRIVMSG" && mes.To == channel
-		},
-		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
-			//inputString := strings.Replace(mes.Content, botNick, "", 1)
-			sanitizedInput := re.ReplaceAllLiteralString(mes.Content, "")
-			brainIn <- sanitizedInput
-			outputString := <-brainOut
-			irc.Channels[mes.To].Say(mes.Name + ":" + outputString)
-			return false
-		},
-	}
-	var Search = func(irc *hbot.IrcCon, mes *hbot.Message, s string) {
+
+	var Search = func(irc *hbot.IrcCon, m *hbot.Message, s string) {
 		max := 3
 		var search []packages.Package
 		var query string
-		words := strings.Fields(mes.Content)
-		irc.Channels[mes.To].Say("Searching, be patient boy")
+		words := strings.Fields(m.Content)
+		irc.Channels[m.To].Say("Searching, be patient boy")
 		if s == "SearchPackage" {
-			search, query = packages.Search(words[1])
+			if len(words) == 2 {
+				search, query = packages.Search(words[1])
+			} else {
+				search, query = packages.Search("")
+			}
 		} else if s == "SearchRevDeps" {
-			search, query = packages.ReverseDeps(words[1])
+			if len(words) == 2 {
+				search, query = packages.ReverseDeps(words[1])
+			} else {
+				search, query = packages.ReverseDeps("")
+			}
 		}
-		irc.Channels[mes.To].Say("Showing results for " + query + " limited to " + strconv.Itoa(max) + " results")
+		irc.Channels[m.To].Say("Showing results for " + query + " limited to " + strconv.Itoa(max) + " results")
 		if len(search) < max {
 			max = len(search)
 		}
 		for i := 0; i < max; i++ {
-			irc.Channels[mes.To].Say(search[i].String())
+			irc.Channels[m.To].Say(search[i].String())
 			time.Sleep(1000 * time.Millisecond)
 		}
 	}
 
 	var SearchPackage = &hbot.Trigger{
-		func(mes *hbot.Message) bool {
-			if strings.Contains(mes.Content, "-search") {
+		func(m *hbot.Message) bool {
+			if strings.Contains(m.Content, "-search") {
 				return true
 			}
 			return false
 		},
-		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
-			Search(irc, mes, "SearchPackage")
+		func(irc *hbot.IrcCon, m *hbot.Message) bool {
+			Search(irc, m, "SearchPackage")
 			return false
 		},
 	}
 
 	var SearchRevDeps = &hbot.Trigger{
-		func(mes *hbot.Message) bool {
-			if strings.Contains(mes.Content, "-rdeps") {
+		func(m *hbot.Message) bool {
+			if strings.Contains(m.Content, "-rdeps") {
 				return true
 			}
 			return false
 		},
-		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
-			Search(irc, mes, "SearchRevDeps")
+		func(irc *hbot.IrcCon, m *hbot.Message) bool {
+			go Search(irc, m, "SearchRevDeps")
+			return false
+		},
+	}
+
+	var LatestPackage = &hbot.Trigger{
+		func(m *hbot.Message) bool {
+			if m.Content == "-latest" {
+				return true
+			}
+			return false
+		},
+		func(irc *hbot.IrcCon, m *hbot.Message) bool {
+			go Search(irc, m, "SearchPackage")
 			return false
 		},
 	}
@@ -166,21 +192,31 @@ func main() {
 		},
 	}
 
+	var Help = &hbot.Trigger{
+		func(m *hbot.Message) bool {
+			if m.Content == "-help" {
+				return true
+			}
+			return false
+		},
+		func(irc *hbot.IrcCon, m *hbot.Message) bool {
+			irc.Channels[m.To].Say("-search package - searches a package in https://packages.sabayon.org/")
+			irc.Channels[m.To].Say("-rdeps package - searches a package reverse deps in https://packages.sabayon.org/")
+			irc.Channels[m.To].Say("-latest - show the latest compiled packages in https://packages.sabayon.org/")
+			irc.Channels[m.To].Say("-eit args - Calls eit with given args and print the output")
+			return true
+		},
+	}
+
 	irc.AddTrigger(SearchPackage)
 	irc.AddTrigger(SearchRevDeps)
+	irc.AddTrigger(LatestPackage)
+	irc.AddTrigger(Help)
 	irc.AddTrigger(Eit)
-	irc.AddTrigger(HALAnswer)
-	if learnEverything == 1 {
-		irc.AddTrigger(HALLearn)
-	}
+
 	// Start up bot
 	irc.Start()
 
-	// Join a channel
-	mychannel := irc.Join(*ichan)
-	if messageOnJoin == 1 {
-		mychannel.Say("i'm here to serve")
-	}
 	// Read off messages from the server
 	for mes := range irc.Incoming {
 		if mes == nil {
