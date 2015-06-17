@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/mudler/hellabot"
+	"github.com/whyrusleeping/hellabot"
 
 	"fmt"
 )

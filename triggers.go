@@ -2,8 +2,8 @@ package main
 
 import (
 	"github.com/freahs/microhal"
-	"github.com/mudler/hellabot"
 	"github.com/mudler/sabbot/packages"
+	"github.com/whyrusleeping/hellabot"
 
 	"bufio"
 	"fmt"
