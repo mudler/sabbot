@@ -93,7 +93,8 @@ func main() {
 			if len(words) == 2 {
 				search, query = packages.ReverseDeps(words[1])
 			} else {
-				search, query = packages.ReverseDeps("")
+				irc.Channels[m.To].Say("Please, be more specific next time")
+				return
 			}
 		}
 		irc.Channels[m.To].Say("Showing results for " + query + " limited to " + strconv.Itoa(max) + " results")
