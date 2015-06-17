@@ -6,6 +6,9 @@ import (
 	"github.com/freahs/microhal"
 	"github.com/mudler/hellabot"
 	"github.com/mudler/sabbot/packages"
+
+	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -13,6 +16,60 @@ import (
 	"strings"
 	"time"
 )
+
+// UrlTitle attempts to extract the title of the page that a
+// pasted URL points to.
+// Returns a string message with the title and URL on success, or a string
+// with an error message on failure.
+func UrlTitle(msg string) string {
+	var (
+		newMsg, url, title, word string
+	)
+
+	regex, _ := regexp.Compile(`(?i)<title>(.*?)<\/title>`)
+
+	msgArray := strings.Split(msg, " ")
+
+	for _, word = range msgArray {
+		if strings.Contains(word, "http") {
+			url = word
+			break
+		}
+		if !strings.Contains(word, "http") && strings.Contains(word, "www") {
+			url = "http://" + word
+			break
+		}
+
+	}
+
+	resp, err := http.Get(url)
+
+	if err != nil {
+		return fmt.Sprintf("Could not resolve URL %v, beware...\n", url)
+	}
+
+	defer resp.Body.Close()
+
+	rawBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Sprintf("Could not read response Body of %v ...\n", url)
+	}
+
+	body := string(rawBody)
+	noNewLines := strings.Replace(body, "\n", "", -1)
+	noCarriageReturns := strings.Replace(noNewLines, "\r", "", -1)
+	notSoRawBody := noCarriageReturns
+
+	titleMatch := regex.FindStringSubmatch(notSoRawBody)
+	if len(titleMatch) > 1 {
+		title = strings.TrimSpace(titleMatch[1])
+	} else {
+		title = fmt.Sprintf("Title Resolution Failure")
+	}
+	newMsg = fmt.Sprintf("[ %v ]( %v )\n", title, url)
+
+	return newMsg
+}
 
 func main() {
 	configFile := "./config.json"
@@ -27,7 +84,9 @@ func main() {
 		brain = microhal.LoadMicrohal(brainFile)
 	}
 
-	irc, config, err := hbot.NewIrcConnectionFromJSON(configFile)
+	config, _ := hbot.LoadConfig(configFile)
+
+	irc, config, err := hbot.NewIrcConnectionFromJSON(config)
 	fmt.Println("Loading from " + configFile)
 	if err != nil {
 		panic(err)
@@ -146,6 +205,17 @@ func main() {
 		},
 	}
 
+	var ShowURLTitles = &hbot.Trigger{
+		func(m *hbot.Message) bool {
+			return strings.Contains(m.Content, "http://") || strings.Contains(m.Content, "https://") || strings.Contains(m.Content, "www.")
+		},
+		func(irc *hbot.IrcCon, m *hbot.Message) bool {
+			title := UrlTitle(m.Content)
+			irc.Channels[m.To].Say(title)
+			return false
+		},
+	}
+
 	var access = []string{"joost_op", "mudler", "Enlik"}
 	var Eit = &hbot.Trigger{
 		func(m *hbot.Message) bool {
@@ -205,6 +275,8 @@ func main() {
 			irc.Channels[m.To].Say("-rdeps package - searches a package reverse deps in https://packages.sabayon.org/")
 			irc.Channels[m.To].Say("-latest - show the latest compiled packages in https://packages.sabayon.org/")
 			irc.Channels[m.To].Say("-eit args - Calls eit with given args and print the output")
+			irc.Channels[m.To].Say("try to write an url :)")
+
 			return true
 		},
 	}
@@ -212,6 +284,8 @@ func main() {
 	irc.AddTrigger(SearchPackage)
 	irc.AddTrigger(SearchRevDeps)
 	irc.AddTrigger(LatestPackage)
+	irc.AddTrigger(ShowURLTitles)
+
 	irc.AddTrigger(Help)
 	irc.AddTrigger(Eit)
 
