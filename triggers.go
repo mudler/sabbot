@@ -227,9 +227,9 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 			irc.Channels[m.To].Say(cmdPrefix + "rdeps package - searches a package reverse deps in https://packages.sabayon.org/")
 			irc.Channels[m.To].Say(cmdPrefix + "latest - show the latest compiled packages in https://packages.sabayon.org/")
 			irc.Channels[m.To].Say(cmdPrefix + "eit args - Calls eit with given args and print the output")
-			irc.Channels[m.To].Say(cmdPrefix + "ddg args - Execute a search via DuckDuckGo, bangs included (e.g. " + cmdPrefix + "ddg !google kittens")
+			irc.Channels[m.To].Say(cmdPrefix + "ddg args - Execute a search via DuckDuckGo, bangs included (e.g. " + cmdPrefix + "ddg !google kittens)")
 
-			irc.Channels[m.To].Say("try to write an url :)")
+			irc.Channels[m.To].Say("...try to write a VALID url :)")
 
 			return true
 		},
