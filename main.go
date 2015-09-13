@@ -7,11 +7,16 @@ import (
 )
 
 func main() {
-	configFile := "./config.json"
+	var configFile string
+	var irc *hbot.IrcCon
+	var config hbot.Config
+	var err error
 
-	config, _ := hbot.LoadConfig(configFile)
+	configFile = "./config.json"
 
-	irc, config, err := hbot.NewIrcConnectionFromJSON(config)
+	config, _ = hbot.LoadConfig(configFile)
+
+	irc, config, err = hbot.NewIrcConnectionFromJSON(config)
 	fmt.Println("Loading from " + configFile)
 	if err != nil {
 		panic(err)
@@ -21,15 +26,7 @@ func main() {
 
 	// Start up bot
 	irc.Start()
-
-	// Read off messages from the server
-	for mes := range irc.Incoming {
-		if mes == nil {
-			fmt.Println("Disconnected.")
-			return
-		}
-		// Log raw message struct
-		fmt.Println(mes)
+	for true {
 	}
-	fmt.Println("Bot shutting down.")
+
 }

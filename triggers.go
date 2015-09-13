@@ -21,9 +21,10 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 
 	/* Start microhal */
 	//microhal too unstable
-	HAL := false
+	HAL := true
 	brainFile := "Brain"
 	learnEverything := true
+	markovOrder := 4
 
 	if HAL {
 		re, _ := regexp.Compile(config.Nick + `\S`)
@@ -31,7 +32,7 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 		var brain *microhal.Microhal
 
 		if _, err := os.Stat(brainFile); os.IsNotExist(err) {
-			brain = microhal.NewMicrohal(brainFile, 6)
+			brain = microhal.NewMicrohal(brainFile, markovOrder)
 		} else {
 			brain = microhal.LoadMicrohal(brainFile)
 		}
@@ -47,9 +48,11 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 			func(irc *hbot.IrcCon, m *hbot.Message) bool {
 				//inputString := strings.Replace(mes.Content, botNick, "", 1)
 				sanitizedInput := re.ReplaceAllLiteralString(m.Content, "")
-				brainIn <- sanitizedInput
-				res := <-brainOut
-				fmt.Printf("stupid response: %s\n", res)
+				if len(sanitizedInput) > markovOrder {
+					brainIn <- sanitizedInput
+					res := <-brainOut
+					fmt.Printf("stupid response: %s\n", res)
+				}
 
 				return false
 			},
@@ -61,9 +64,12 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 			func(irc *hbot.IrcCon, m *hbot.Message) bool {
 				//inputString := strings.Replace(mes.Content, botNick, "", 1)
 				sanitizedInput := re.ReplaceAllLiteralString(m.Content, "")
-				brainIn <- sanitizedInput
-				outputString := <-brainOut
-				irc.Channels[m.To].Say(m.Name + ":" + outputString)
+				if len(sanitizedInput) > markovOrder {
+
+					brainIn <- sanitizedInput
+					outputString := <-brainOut
+					irc.Channels[m.To].Say(m.Name + ":" + outputString)
+				}
 				return false
 			},
 		}
@@ -235,6 +241,16 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 		},
 	}
 
+	var PrintMessages = &hbot.Trigger{
+		func(m *hbot.Message) bool {
+			return true
+		},
+		func(irc *hbot.IrcCon, m *hbot.Message) bool {
+			fmt.Println(m.To + ": " + m.Content)
+			return true
+		},
+	}
+
 	irc.AddTrigger(SearchPackage)
 	irc.AddTrigger(SearchRevDeps)
 	irc.AddTrigger(LatestPackage)
@@ -243,5 +259,6 @@ func AddTriggers(irc *hbot.IrcCon, config hbot.Config) {
 	irc.AddTrigger(Eit)
 
 	irc.AddTrigger(Help)
+	irc.AddTrigger(PrintMessages)
 
 }
